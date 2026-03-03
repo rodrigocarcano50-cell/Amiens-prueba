@@ -1,0 +1,7 @@
+{
+  "rewrites": [
+    { "source": "/api/auth/login",    "destination": "/api/login" },
+    { "source": "/api/auth/islogged", "destination": "/api/islogged" },
+    { "source": "/api/auth/usuarios", "destination": "/api/usuarios" }
+  ]
+}
