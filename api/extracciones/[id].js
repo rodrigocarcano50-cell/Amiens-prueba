@@ -1,5 +1,23 @@
-import { supabase } from '../_lib/supabase.js';
-import { verifyToken, setCors } from '../_lib/auth.js';
+import jwt from 'jsonwebtoken';
+import { createClient } from '@supabase/supabase-js';
+
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+
+function verifyToken(req, res) {
+  const token = req.headers['authorization']?.split(' ')[1];
+  if (!token) { res.status(401).json({ error: 'Token no proporcionado' }); return null; }
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    return { userId: decoded.sub };
+  } catch (err) {
+    if (err.name === 'TokenExpiredError') {
+      res.status(401).json({ error: 'El token ha expirado', mensaje: 'Por favor, iniciá sesión nuevamente' });
+    } else {
+      res.status(401).json({ error: 'Token inválido' });
+    }
+    return null;
+  }
+}
 
 function calcularEstado(stock, stock_minimo) {
   if (stock <= 0) return 'Sin Stock';
@@ -8,7 +26,9 @@ function calcularEstado(stock, stock_minimo) {
 }
 
 export default async function handler(req, res) {
-  setCors(res);
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (req.method === 'OPTIONS') return res.status(200).end();
 
   const auth = verifyToken(req, res);
@@ -18,49 +38,25 @@ export default async function handler(req, res) {
 
   if (req.method === 'DELETE') {
     const devolver = req.body?.devolver ?? 0;
-
-    // Obtener detalles de la extracción
     const { data: extraccion, error: fetchError } = await supabase
-      .from('extraccion')
-      .select('id, detalle_extraccion ( producto_id, cantidad )')
-      .eq('id', id)
-      .single();
+      .from('extraccion').select('id, detalle_extraccion(producto_id, cantidad)').eq('id', id).single();
+    if (fetchError || !extraccion) return res.status(404).json({ error: `No se encontró la extracción ID ${id}` });
 
-    if (fetchError || !extraccion) {
-      return res.status(404).json({ error: `No se encontró ninguna extracción con ID ${id}` });
-    }
-
-    // Restaurar stock si devolver == 1
     if (devolver === 1) {
-      for (const detalle of extraccion.detalle_extraccion) {
-        const { data: prod } = await supabase
-          .from('producto')
-          .select('stock, stock_minimo')
-          .eq('id', detalle.producto_id)
-          .single();
-
+      for (const d of extraccion.detalle_extraccion) {
+        const { data: prod } = await supabase.from('producto').select('stock, stock_minimo').eq('id', d.producto_id).single();
         if (prod) {
-          const nuevoStock = prod.stock + detalle.cantidad;
-          const nuevoEstado = calcularEstado(nuevoStock, prod.stock_minimo);
-          await supabase
-            .from('producto')
-            .update({ stock: nuevoStock, estado: nuevoEstado })
-            .eq('id', detalle.producto_id);
+          const nuevoStock = prod.stock + d.cantidad;
+          await supabase.from('producto').update({ stock: nuevoStock, estado: calcularEstado(nuevoStock, prod.stock_minimo) }).eq('id', d.producto_id);
         }
       }
     }
 
-    // Eliminar detalles primero, luego la extracción
     await supabase.from('detalle_extraccion').delete().eq('extraccion_id', id);
     const { error } = await supabase.from('extraccion').delete().eq('id', id);
+    if (error) return res.status(500).json({ error: error.message });
 
-    if (error) return res.status(500).json({ error: `Error al eliminar la extracción: ${error.message}` });
-
-    return res.status(200).json({
-      mensaje: `Extracción ID ${id} eliminada`,
-      stock_restaurado: devolver === 1,
-      detalles_eliminados: true
-    });
+    return res.status(200).json({ mensaje: `Extracción ID ${id} eliminada`, stock_restaurado: devolver === 1 });
   }
 
   return res.status(405).json({ error: 'Método no permitido' });
