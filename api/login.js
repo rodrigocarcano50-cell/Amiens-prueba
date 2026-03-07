@@ -4,6 +4,12 @@ import { createClient } from '@supabase/supabase-js';
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
+export const config = {
+  api: {
+    bodyParser: true,
+  },
+};
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
@@ -11,8 +17,16 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Método no permitido' });
 
-  const { username, password } = req.body;
-  if (!username || !password) return res.status(400).json({ error: 'Faltan credenciales' });
+  // Parsear body manualmente si llega como string
+  let body = req.body;
+  if (typeof body === 'string') {
+    try { body = JSON.parse(body); } catch { body = {}; }
+  }
+  if (!body) body = {};
+
+  const { username, password } = body;
+
+  if (!username || !password) return res.status(400).json({ error: 'Faltan credenciales', body_recibido: body });
 
   const { data: usuarios, error } = await supabase
     .from('usuario')
