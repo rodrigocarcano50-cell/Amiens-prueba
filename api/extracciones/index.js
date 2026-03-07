@@ -35,15 +35,30 @@ export default async function handler(req, res) {
   if (!auth) return;
 
   if (req.method === 'GET') {
-    const { data, error } = await supabase
+    const { data: extracciones, error: errExt } = await supabase
       .from('extraccion')
-      .select('id, fecha, descripcion, usuario_id, detalle_extraccion(producto_id, cantidad)')
+      .select('id, fecha, descripcion, usuario_id')
       .order('fecha', { ascending: false });
-    if (error) return res.status(500).json({ error: 'Error al obtener extracciones' });
-    return res.status(200).json(data.map(e => ({
-      id: e.id, descripcion: e.descripcion, fecha: e.fecha, usuario_id: e.usuario_id,
-      detalles: e.detalle_extraccion.map(d => ({ producto_id: d.producto_id, cantidad: d.cantidad }))
-    })));
+
+    if (errExt) return res.status(500).json({ error: 'Error al obtener extracciones', detalle: errExt.message });
+
+    const resultado = [];
+    for (const e of extracciones) {
+      const { data: detalles } = await supabase
+        .from('detalle_extraccion')
+        .select('producto_id, cantidad')
+        .eq('extraccion_id', e.id);
+
+      resultado.push({
+        id: e.id,
+        descripcion: e.descripcion,
+        fecha: e.fecha,
+        usuario_id: e.usuario_id,
+        detalles: detalles || []
+      });
+    }
+
+    return res.status(200).json(resultado);
   }
 
   if (req.method === 'POST') {
@@ -68,7 +83,11 @@ export default async function handler(req, res) {
 
     const stockActualizado = [];
     for (const item of productos) {
-      await supabase.from('detalle_extraccion').insert([{ extraccion_id: nueva.id, producto_id: item.producto_id, cantidad: item.cantidad }]);
+      await supabase.from('detalle_extraccion').insert([{
+        extraccion_id: nueva.id,
+        producto_id: item.producto_id,
+        cantidad: item.cantidad
+      }]);
       const { data: prod } = await supabase.from('producto').select('stock, stock_minimo').eq('id', item.producto_id).single();
       const nuevoStock = prod.stock - item.cantidad;
       await supabase.from('producto').update({ stock: nuevoStock, estado: calcularEstado(nuevoStock, prod.stock_minimo) }).eq('id', item.producto_id);

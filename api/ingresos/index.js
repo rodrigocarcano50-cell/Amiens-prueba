@@ -35,15 +35,29 @@ export default async function handler(req, res) {
   if (!auth) return;
 
   if (req.method === 'GET') {
-    const { data, error } = await supabase
+    const { data: ingresos, error: errIng } = await supabase
       .from('ingreso')
-      .select('id, fecha, usuario_id, detalle_ingreso(producto_id, cantidad)')
+      .select('id, fecha, usuario_id')
       .order('fecha', { ascending: false });
-    if (error) return res.status(500).json({ error: 'Error al obtener ingresos' });
-    return res.status(200).json(data.map(i => ({
-      id: i.id, fecha: i.fecha, usuario_id: i.usuario_id,
-      detalles: i.detalle_ingreso.map(d => ({ producto_id: d.producto_id, cantidad: d.cantidad }))
-    })));
+
+    if (errIng) return res.status(500).json({ error: 'Error al obtener ingresos', detalle: errIng.message });
+
+    const resultado = [];
+    for (const i of ingresos) {
+      const { data: detalles } = await supabase
+        .from('detalle_ingreso')
+        .select('producto_id, cantidad')
+        .eq('ingreso_id', i.id);
+
+      resultado.push({
+        id: i.id,
+        fecha: i.fecha,
+        usuario_id: i.usuario_id,
+        detalles: detalles || []
+      });
+    }
+
+    return res.status(200).json(resultado);
   }
 
   if (req.method === 'POST') {
