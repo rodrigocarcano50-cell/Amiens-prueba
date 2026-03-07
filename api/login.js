@@ -20,6 +20,7 @@ export default async function handler(req, res) {
   if (!body) body = {};
 
   const { username, password } = body;
+  if (!username || !password) return res.status(400).json({ error: 'Faltan credenciales' });
 
   const { data: usuarios, error } = await supabase
     .from('usuario')
@@ -28,18 +29,17 @@ export default async function handler(req, res) {
     .limit(1);
 
   if (error || !usuarios || usuarios.length === 0)
-    return res.status(401).json({ error: 'Usuario no encontrado', supabase_error: error });
+    return res.status(401).json({ error: 'Credenciales incorrectas' });
 
   const user = usuarios[0];
-  
-  // Retornar info de debug sin loguear
   const passwordValida = await bcrypt.compare(password, user.password_hash);
-  
-  return res.status(200).json({
-    debug: true,
-    username_recibido: username,
-    password_recibido: password,
-    hash_en_db: user.password_hash,
-    bcrypt_resultado: passwordValida
-  });
+  if (!passwordValida) return res.status(401).json({ error: 'Credenciales incorrectas' });
+
+  const access_token = jwt.sign(
+    { sub: String(user.id) },
+    process.env.JWT_SECRET,
+    { expiresIn: '1h' }
+  );
+
+  return res.status(200).json({ access_token });
 }
