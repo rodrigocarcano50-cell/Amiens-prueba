@@ -4,11 +4,7 @@ import { createClient } from '@supabase/supabase-js';
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
-export const config = {
-  api: {
-    bodyParser: true,
-  },
-};
+export const config = { api: { bodyParser: true } };
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -17,7 +13,6 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Método no permitido' });
 
-  // Parsear body manualmente si llega como string
   let body = req.body;
   if (typeof body === 'string') {
     try { body = JSON.parse(body); } catch { body = {}; }
@@ -26,8 +21,6 @@ export default async function handler(req, res) {
 
   const { username, password } = body;
 
-  if (!username || !password) return res.status(400).json({ error: 'Faltan credenciales', body_recibido: body });
-
   const { data: usuarios, error } = await supabase
     .from('usuario')
     .select('*')
@@ -35,17 +28,18 @@ export default async function handler(req, res) {
     .limit(1);
 
   if (error || !usuarios || usuarios.length === 0)
-    return res.status(401).json({ error: 'Credenciales incorrectas' });
+    return res.status(401).json({ error: 'Usuario no encontrado', supabase_error: error });
 
   const user = usuarios[0];
+  
+  // Retornar info de debug sin loguear
   const passwordValida = await bcrypt.compare(password, user.password_hash);
-  if (!passwordValida) return res.status(401).json({ error: 'Credenciales incorrectas' });
-
-  const access_token = jwt.sign(
-    { sub: String(user.id) },
-    process.env.JWT_SECRET,
-    { expiresIn: '1h' }
-  );
-
-  return res.status(200).json({ access_token });
+  
+  return res.status(200).json({
+    debug: true,
+    username_recibido: username,
+    password_recibido: password,
+    hash_en_db: user.password_hash,
+    bcrypt_resultado: passwordValida
+  });
 }
